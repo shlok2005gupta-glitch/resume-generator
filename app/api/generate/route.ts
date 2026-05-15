@@ -21,7 +21,7 @@ function getRateLimiter() {
 
   limiter = new Ratelimit({
     redis: new Redis({ url, token }),
-    limiter: Ratelimit.slidingWindow(5, '1 h'),
+    limiter: Ratelimit.slidingWindow(3, '1 h'),
     analytics: true,
     prefix: 'resume-gen',
   })
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
         const retryAfterSec = Math.ceil((reset - Date.now()) / 1000)
         return NextResponse.json(
           {
-            error: `Rate limit reached. You can generate ${limit} resumes per hour. Try again in ${Math.ceil(retryAfterSec / 60)} min.`,
+            error: `Rate limit reached — max ${limit} resumes per hour. Try again in ${Math.ceil(retryAfterSec / 60)} min.`,
           },
           {
             status: 429,
