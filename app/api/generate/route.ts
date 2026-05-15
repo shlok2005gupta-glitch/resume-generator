@@ -11,7 +11,9 @@ let limiter: import('@upstash/ratelimit').Ratelimit | null = null
 
 function getRateLimiter() {
   if (limiter) return limiter
-  const { UPSTASH_REDIS_REST_URL: url, UPSTASH_REDIS_REST_TOKEN: token } = process.env
+  // Vercel × Upstash integration injects KV_REST_API_URL / KV_REST_API_TOKEN
+  const url = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL
+  const token = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN
   if (!url || !token) return null
 
   const { Redis } = require('@upstash/redis')
