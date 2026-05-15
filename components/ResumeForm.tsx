@@ -222,14 +222,20 @@ export default function ResumeForm() {
       const fallbackName = `${data.personalInfo.fullName.replace(/[^a-zA-Z0-9]/g, '_') || 'resume'}_resume.pdf`
 
       if (contentType.includes('application/json')) {
-        // Production path: Vercel Blob returned a CDN URL
+        // Production path: Vercel Blob returned a CDN URL.
+        // We must fetch the PDF back and create a same-origin blob URL —
+        // browsers silently ignore `download` on cross-origin anchors.
         const { url, filename } = await res.json()
+        const pdfRes = await fetch(url)
+        const pdfBlob = await pdfRes.blob()
+        const localUrl = URL.createObjectURL(pdfBlob)
         const anchor = document.createElement('a')
-        anchor.href = url
+        anchor.href = localUrl
         anchor.download = filename ?? fallbackName
         document.body.appendChild(anchor)
         anchor.click()
         document.body.removeChild(anchor)
+        URL.revokeObjectURL(localUrl)
       } else {
         // Local dev fallback: API streamed the PDF binary directly
         const blob = await res.blob()
