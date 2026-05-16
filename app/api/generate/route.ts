@@ -1,33 +1,35 @@
 import { NextResponse } from 'next/server'
-import { fork } from 'child_process'
+import { Worker } from 'worker_threads'
+import fs from 'fs'
 import path from 'path'
 import type { ResumeData } from '@/types/resume'
 
 export const dynamic = 'force-dynamic'
 
-// Runs PDF generation in a child process so it uses Node.js's React 18 from
-// node_modules — not Next.js's bundled React 19 canary. This fixes the
-// $$typeof mismatch (react.transitional.element vs react.element) that caused
-// error #31 inside @react-pdf/reconciler.
+// PDF generation runs inside a worker_threads Worker (eval mode).
+// The worker's require() uses Node.js native module resolution, so it gets
+// React 18.3.1 from node_modules — not Next.js's bundled React 19 canary.
+// This avoids the $$typeof mismatch (react.transitional.element vs
+// react.element) that caused error #31 inside @react-pdf/reconciler.
+// Using eval mode means Turbopack never tries to bundle the worker file.
 function renderPDF(data: ResumeData): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const workerPath = path.join(process.cwd(), 'scripts', 'pdf-worker.cjs')
-    const child = fork(workerPath, [], { silent: true })
+    const workerCode = fs.readFileSync(
+      path.join(process.cwd(), 'scripts', 'pdf-worker.cjs'),
+      'utf8'
+    )
+    const worker = new Worker(workerCode, { eval: true, workerData: data })
     let settled = false
 
-    child.once('message', (msg: any) => {
+    worker.once('message', (msg: any) => {
       settled = true
-      try { child.disconnect() } catch {}
       if (msg.ok) resolve(Buffer.from(msg.buffer, 'base64'))
       else reject(new Error(msg.error))
     })
-
-    child.on('error', (err) => { if (!settled) { settled = true; reject(err) } })
-    child.on('exit', (code) => {
+    worker.on('error', (err) => { if (!settled) { settled = true; reject(err) } })
+    worker.on('exit', (code) => {
       if (!settled && code !== 0) { settled = true; reject(new Error(`PDF worker exited with code ${code}`)) }
     })
-
-    child.send(data)
   })
 }
 

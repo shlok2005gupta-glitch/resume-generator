@@ -1,8 +1,10 @@
 'use strict'
-// Runs as a child process — uses Node.js native require() so it gets
-// React 18.3.1 from node_modules, NOT Next.js's bundled React 19 canary.
-// This avoids the $$typeof symbol mismatch (react.transitional.element vs
-// react.element) that causes error #31 inside @react-pdf/reconciler.
+// Runs as a worker_threads Worker (eval mode) so require() uses Node.js native
+// module resolution — gets React 18.3.1 from node_modules, NOT Next.js's
+// bundled React 19 canary which uses Symbol.for('react.transitional.element')
+// that @react-pdf/reconciler doesn't recognise, causing error #31.
+
+const { workerData, parentPort } = require('worker_threads')
 
 const React = require('react')
 const {
@@ -226,12 +228,13 @@ function buildPDF(data) {
   )
 }
 
-process.on('message', async (data) => {
+async function main() {
   try {
-    const element = buildPDF(data)
+    const element = buildPDF(workerData)
     const buffer = await renderToBuffer(element)
-    process.send({ ok: true, buffer: Buffer.from(buffer).toString('base64') })
+    parentPort.postMessage({ ok: true, buffer: Buffer.from(buffer).toString('base64') })
   } catch (err) {
-    process.send({ ok: false, error: err.message || String(err) })
+    parentPort.postMessage({ ok: false, error: err.message || String(err) })
   }
-})
+}
+main()
