@@ -1,9 +1,35 @@
 import { NextResponse } from 'next/server'
-import { renderToBuffer } from '@react-pdf/renderer'
+import { fork } from 'child_process'
+import path from 'path'
 import type { ResumeData } from '@/types/resume'
-import { createResumeElement } from './pdf'
 
 export const dynamic = 'force-dynamic'
+
+// Runs PDF generation in a child process so it uses Node.js's React 18 from
+// node_modules — not Next.js's bundled React 19 canary. This fixes the
+// $$typeof mismatch (react.transitional.element vs react.element) that caused
+// error #31 inside @react-pdf/reconciler.
+function renderPDF(data: ResumeData): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const workerPath = path.join(process.cwd(), 'scripts', 'pdf-worker.cjs')
+    const child = fork(workerPath, [], { silent: true })
+    let settled = false
+
+    child.once('message', (msg: any) => {
+      settled = true
+      try { child.disconnect() } catch {}
+      if (msg.ok) resolve(Buffer.from(msg.buffer, 'base64'))
+      else reject(new Error(msg.error))
+    })
+
+    child.on('error', (err) => { if (!settled) { settled = true; reject(err) } })
+    child.on('exit', (code) => {
+      if (!settled && code !== 0) { settled = true; reject(new Error(`PDF worker exited with code ${code}`)) }
+    })
+
+    child.send(data)
+  })
+}
 
 // ── Rate limiter (lazy-initialised so local dev without credentials is fine) ──
 
@@ -67,8 +93,7 @@ export async function POST(request: Request) {
     }
 
     // ── PDF generation ───────────────────────────────────────────────────────
-    const element = createResumeElement(data)
-    const buffer = await renderToBuffer(element as any)
+    const buffer = await renderPDF(data)
 
     const safeName = data.personalInfo.fullName.replace(/[^a-zA-Z0-9]/g, '_')
     const filename = `${safeName}_resume.pdf`
@@ -76,8 +101,7 @@ export async function POST(request: Request) {
     // ── Blob storage ─────────────────────────────────────────────────────────
     if (process.env.BLOB_READ_WRITE_TOKEN) {
       const { put } = await import('@vercel/blob')
-      // put() requires a Node.js Buffer (not Uint8Array)
-      const blob = await put(`resumes/${Date.now()}_${filename}`, Buffer.from(buffer), {
+      const blob = await put(`resumes/${Date.now()}_${filename}`, buffer, {
         access: 'public',
         contentType: 'application/pdf',
         addRandomSuffix: false,
