@@ -47,7 +47,7 @@ function getRateLimiter() {
 
   limiter = new Ratelimit({
     redis: new Redis({ url, token }),
-    limiter: Ratelimit.slidingWindow(10, '1 h'),
+    limiter: Ratelimit.slidingWindow(20, '1 h'),
     analytics: true,
     prefix: 'resume-gen',
   })
